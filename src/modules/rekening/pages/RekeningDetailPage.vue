@@ -70,11 +70,10 @@ const progres = computed(() => {
 const info = computed(() => {
   const r = rekening.value
   if (!r) return []
-  const b = [
-    { label: 'Produk', nilai: r.nama_produk || produk.value.label },
-    { label: 'Tanggal buka', nilai: tanggalPanjang(r.tanggal_buka) },
-    { label: 'Suku bunga', nilai: `${Number(r.suku_bunga)}% per tahun` },
-  ]
+  const b = [{ label: 'Produk', nilai: r.nama_produk || produk.value.label }]
+  if (r.tanggal_buka) b.push({ label: 'Tanggal buka', nilai: tanggalPanjang(r.tanggal_buka) })
+  if (r.suku_bunga != null)
+    b.push({ label: 'Suku bunga', nilai: `${Number(r.suku_bunga)}% per tahun` })
   if (r.jangka_bulan) b.push({ label: 'Jangka waktu', nilai: `${r.jangka_bulan} bulan` })
   if (r.jatuh_tempo) b.push({ label: 'Jatuh tempo', nilai: tanggalPanjang(r.jatuh_tempo) })
   if (r.setoran_rutin)

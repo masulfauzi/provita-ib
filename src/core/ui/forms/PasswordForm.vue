@@ -1,8 +1,8 @@
 <script setup>
 /**
- * Form ganti password (dipakai di onboarding langkah 1 dan halaman Profil).
+ * Form ganti password (halaman Profil).
  */
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
@@ -10,8 +10,9 @@ import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import FormField from './FormField.vue'
+import AturanPassword from './AturanPassword.vue'
 import { useAuthStore } from '@/core/stores/auth'
-import { aturanPassword, kekuatanPassword } from '@/core/utils/password'
+import { galatPassword } from '@/core/utils/password'
 
 defineProps({
   labelKirim: { type: String, default: 'Simpan password baru' },
@@ -21,8 +22,7 @@ const emit = defineEmits(['berhasil'])
 const auth = useAuthStore()
 const konteks = (lama) => ({
   lama,
-  nis: auth.user?.nis,
-  noRekening: auth.user?.nomor_rekening || [],
+  terlarang: [auth.user?.nis, auth.user?.no_hp, ...(auth.user?.nomor_rekening || [])],
 })
 
 const schema = toTypedSchema(
@@ -39,13 +39,9 @@ const schema = toTypedSchema(
         .min(1, 'Ulangi password baru'),
     })
     .superRefine((v, ctx) => {
-      const gagal = aturanPassword(v.password, konteks(v.password_lama)).find((a) => !a.ok)
-      if (v.password && gagal) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['password'],
-          message: `Password baru: ${gagal.label.toLowerCase()}`,
-        })
+      const galat = v.password && galatPassword(v.password, konteks(v.password_lama))
+      if (galat) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['password'], message: galat })
       }
       if (v.password_confirmation && v.password !== v.password_confirmation) {
         ctx.addIssue({
@@ -65,10 +61,6 @@ const { defineField, handleSubmit, errors, setErrors, resetForm, isSubmitting } 
 const [lama, lamaAttrs] = defineField('password_lama')
 const [baru, baruAttrs] = defineField('password')
 const [ulang, ulangAttrs] = defineField('password_confirmation')
-
-const aturan = computed(() => aturanPassword(baru.value || '', konteks(lama.value || '')))
-const kekuatan = computed(() => kekuatanPassword(baru.value || ''))
-const warnaKekuatan = ['bg-danger', 'bg-danger', 'bg-amber-500', 'bg-success', 'bg-success-ink']
 
 const pesanUmum = ref('')
 
@@ -125,38 +117,7 @@ defineExpose({ resetForm })
       />
     </FormField>
 
-    <div class="rounded-field border border-outline bg-canvas p-4">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <span class="eyebrow">Kekuatan password</span>
-        <span class="text-label-md text-ink" data-testid="kekuatan-label">{{
-          kekuatan.label || '—'
-        }}</span>
-      </div>
-      <div class="mb-4 grid grid-cols-4 gap-1.5" aria-hidden="true">
-        <span
-          v-for="i in 4"
-          :key="i"
-          class="h-1.5 rounded-full transition-colors"
-          :class="
-            baru && i <= Math.max(kekuatan.skor, 1) ? warnaKekuatan[kekuatan.skor] : 'bg-outline'
-          "
-        />
-      </div>
-      <ul id="aturan-password" class="grid gap-2" aria-label="Aturan password baru">
-        <li
-          v-for="a in aturan"
-          :key="a.kode"
-          class="flex items-center gap-2 text-body-md"
-          :class="a.ok ? 'text-success-ink' : 'text-muted'"
-          :data-testid="`aturan-${a.kode}`"
-          :data-ok="a.ok"
-        >
-          <i :class="a.ok ? 'pi pi-check-circle' : 'pi pi-circle'" aria-hidden="true" />
-          <span>{{ a.label }}</span>
-          <span class="sr-only">{{ a.ok ? '(terpenuhi)' : '(belum terpenuhi)' }}</span>
-        </li>
-      </ul>
-    </div>
+    <AturanPassword :password="baru || ''" :konteks="konteks(lama || '')" />
 
     <FormField
       id="password_confirmation"

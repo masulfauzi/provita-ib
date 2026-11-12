@@ -47,11 +47,7 @@ export function createAppRouter(pinia) {
         return { name: 'pemeliharaan', query: { kembali: to.fullPath } }
       }
     }
-    return resolveGuard(to, {
-      masuk: auth.masuk,
-      wajibGantiPassword: auth.wajibGantiPassword,
-      profilLengkap: auth.profilLengkap,
-    })
+    return resolveGuard(to, { masuk: auth.masuk })
   })
 
   router.afterEach((to) => {

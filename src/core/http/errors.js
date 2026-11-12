@@ -2,10 +2,10 @@
 export class ApiError extends Error {
   /**
    * @param {object} p
-   * @param {'validasi'|'auth'|'terlarang'|'tidak-ditemukan'|'batas'|'server'|'jaringan'|'lain'} p.tipe
+   * @param {'validasi'|'auth'|'sesi'|'terlarang'|'tidak-ditemukan'|'konflik'|'batas'|'server'|'jaringan'|'lain'} p.tipe
    * @param {string} p.message
    * @param {number} [p.status]
-   * @param {string} [p.kode]          kode dari API, mis. WAJIB_GANTI_PASSWORD
+   * @param {string} [p.kode]          kode dari API, mis. SUDAH_AKTIVASI, VERIFIKASI_DIPERLUKAN
    * @param {Record<string,string>} [p.fieldErrors] error per field (422)
    * @param {number} [p.retryAfter]    detik tunggu (429)
    * @param {object} [p.data]          body respons mentah

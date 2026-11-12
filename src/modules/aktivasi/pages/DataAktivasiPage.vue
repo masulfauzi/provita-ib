@@ -3,9 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { useDebounceFn, useEventListener } from '@vueuse/core'
+import { useDebounceFn, useEventListener, useNow } from '@vueuse/core'
 import { useToast } from 'primevue/usetoast'
 import InputText from 'primevue/inputtext'
+import Password from 'primevue/password'
 import DatePicker from 'primevue/datepicker'
 import RadioButton from 'primevue/radiobutton'
 import Select from 'primevue/select'
@@ -13,20 +14,39 @@ import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import FormField from '@/core/ui/forms/FormField.vue'
-import { useAuthStore } from '@/core/stores/auth'
-import { keISODate, keTanggal } from '@/core/utils/format'
-import { buatSchemaDataPribadi, NILAI_AWAL } from '../schema'
-import { simpanDataPribadi } from '../api'
+import AturanPassword from '@/core/ui/forms/AturanPassword.vue'
+import { keISODate, keTanggal, normalisasiHp } from '@/core/utils/format'
+import { buatSchemaAktivasi, FIELD_RAHASIA, NILAI_AWAL } from '../schema'
+import { kirimAktivasi } from '../api'
+import { useAktivasiStore } from '../store'
 
-const KUNCI_DRAF = 'ib:draf-data-pribadi'
+const KUNCI_DRAF = 'ib:draf-aktivasi'
 
-const auth = useAuthStore()
 const router = useRouter()
 const toast = useToast()
+const store = useAktivasiStore()
 
-const jenisNasabah = computed(() => auth.user?.jenis_nasabah || 'siswa')
-const wajibWali = computed(() => jenisNasabah.value === 'siswa')
-const labelJenis = { siswa: 'Siswa', guru: 'Guru', karyawan: 'Karyawan' }
+const hasil = computed(() => store.hasil || {})
+const wajibWali = computed(() => !!hasil.value.wajib_wali)
+const labelJenis = { siswa: 'Siswa', guru: 'Guru', karyawan: 'Karyawan', lembaga: 'Lembaga' }
+const terlarang = computed(() => [hasil.value.identitas, hasil.value.no_rekening])
+
+/* ---- Batas waktu sesi aktivasi (15 menit sejak langkah 1) ---- */
+const sekarang = useNow({ interval: 1000 })
+const sisaDetik = computed(() =>
+  Math.max(0, Math.floor((store.berlakuSampai - sekarang.value.getTime()) / 1000)),
+)
+const kedaluwarsa = computed(() => !!store.hasil && sisaDetik.value <= 0)
+const sisaWaktu = computed(() => {
+  const m = Math.floor(sisaDetik.value / 60)
+  const d = sisaDetik.value % 60
+  return `${m}:${String(d).padStart(2, '0')}`
+})
+
+function ulangiVerifikasi(pesan = '') {
+  store.bersihkan(pesan)
+  router.replace({ name: 'aktivasi' })
+}
 
 const {
   defineField,
@@ -38,7 +58,9 @@ const {
   isSubmitting,
   submitCount,
 } = useForm({
-  validationSchema: toTypedSchema(buatSchemaDataPribadi(jenisNasabah.value)),
+  validationSchema: toTypedSchema(
+    buatSchemaAktivasi({ wajibWali: wajibWali.value, terlarang: terlarang.value }),
+  ),
   initialValues: { ...NILAI_AWAL },
 })
 
@@ -53,12 +75,19 @@ const [kelurahan] = f.kelurahan
 const [kecamatan] = f.kecamatan
 const [kota] = f.kota
 const [kodePos] = f.kode_pos
-const [noHp] = f.no_hp
 const [email] = f.email
 const [waliNama] = f.wali_nama
 const [waliHubungan] = f.wali_hubungan
 const [waliHp] = f.wali_hp
+const [noHp] = f.no_hp
+const [noHpUlang] = f.no_hp_confirmation
+const [password] = f.password
+const [passwordUlang] = f.password_confirmation
 const [persetujuan] = f.persetujuan
+
+const konteksPassword = computed(() => ({
+  terlarang: [...terlarang.value, normalisasiHp(noHp.value)],
+}))
 
 const pilihanHubungan = [
   { label: 'Ayah', value: 'ayah' },
@@ -68,8 +97,12 @@ const pilihanHubungan = [
 const hariIni = new Date()
 const pesanUmum = ref('')
 
-/* ---- Draf di sessionStorage (hilang saat tab ditutup / logout) ---- */
+/* ---- Draf di sessionStorage, tanpa password (hilang saat tab ditutup) ---- */
 onMounted(() => {
+  if (!store.hasil) {
+    router.replace({ name: 'aktivasi' })
+    return
+  }
   try {
     const draf = JSON.parse(sessionStorage.getItem(KUNCI_DRAF) || 'null')
     if (draf) {
@@ -77,7 +110,6 @@ onMounted(() => {
         {
           ...draf,
           tanggal_lahir: draf.tanggal_lahir ? keTanggal(draf.tanggal_lahir) : null,
-          persetujuan: false,
         },
         false,
       )
@@ -88,9 +120,9 @@ onMounted(() => {
 })
 let terkirim = false
 function simpanDrafSekarang(v) {
-  if (terkirim) return
+  if (terkirim || !store.hasil) return
   try {
-    const { persetujuan: _p, ...isi } = v
+    const isi = Object.fromEntries(Object.entries(v).filter(([k]) => !FIELD_RAHASIA.includes(k)))
     sessionStorage.setItem(
       KUNCI_DRAF,
       JSON.stringify({
@@ -102,64 +134,112 @@ function simpanDrafSekarang(v) {
     /* diabaikan */
   }
 }
+function hapusDraf() {
+  try {
+    sessionStorage.removeItem(KUNCI_DRAF)
+  } catch {
+    /* diabaikan */
+  }
+}
 const simpanDraf = useDebounceFn(simpanDrafSekarang, 400)
 watch(values, (v) => simpanDraf({ ...v }), { deep: true })
 // Simpan segera saat halaman di-refresh / ditutup (debounce mungkin belum jalan)
 useEventListener(window, 'pagehide', () => simpanDrafSekarang({ ...values }))
 
+const PESAN_PERIKSA = 'Beberapa isian belum sesuai. Periksa kembali kolom yang ditandai.'
+
+function fokusGalat() {
+  requestAnimationFrame(() =>
+    document.querySelector('[aria-invalid="true"], .p-invalid input')?.focus(),
+  )
+}
+
 const kirim = handleSubmit(
   async (v) => {
     pesanUmum.value = ''
-    const payload = { ...v, tanggal_lahir: keISODate(v.tanggal_lahir), email: v.email || null }
+    const payload = {
+      ...v,
+      tanggal_lahir: keISODate(v.tanggal_lahir),
+      email: v.email || null,
+      no_hp: normalisasiHp(v.no_hp),
+      no_hp_confirmation: normalisasiHp(v.no_hp_confirmation),
+      wali_hp: v.wali_hp ? normalisasiHp(v.wali_hp) : null,
+    }
     if (!wajibWali.value && !v.wali_nama) {
       payload.wali_nama = null
       payload.wali_hubungan = null
       payload.wali_hp = null
     }
     try {
-      await simpanDataPribadi(payload)
+      const { message, no_hp } = await kirimAktivasi(payload)
       terkirim = true
-      try {
-        sessionStorage.removeItem(KUNCI_DRAF)
-      } catch {
-        /* diabaikan */
-      }
-      auth.tandaiProfilLengkap()
+      hapusDraf()
+      store.bersihkan()
       toast.add({
         severity: 'success',
-        summary: `Selamat datang, ${auth.namaPanggilan}!`,
-        detail: 'Data pribadi Anda berhasil disimpan.',
-        life: 5000,
+        summary: 'Aktivasi berhasil',
+        detail: message || 'Silakan masuk menggunakan No. HP dan password Anda.',
+        life: 6000,
       })
-      await router.replace({ name: 'beranda' })
+      await router.replace({
+        name: 'masuk',
+        query: { alasan: 'aktivasi' },
+        state: { noHp: no_hp || payload.no_hp },
+      })
     } catch (e) {
       if (e.tipe === 'validasi') {
         setErrors(e.fieldErrors)
-        pesanUmum.value = 'Beberapa isian belum sesuai. Periksa kembali kolom yang ditandai.'
+        pesanUmum.value = PESAN_PERIKSA
+        fokusGalat()
+      } else if (e.kode === 'VERIFIKASI_DIPERLUKAN') {
+        ulangiVerifikasi(e.message)
+      } else if (e.tipe === 'konflik') {
+        terkirim = true
+        hapusDraf()
+        store.bersihkan()
+        toast.add({ severity: 'info', summary: e.message, life: 6000 })
+        await router.replace({ name: 'masuk' })
       } else {
         pesanUmum.value = e.message
       }
     }
   },
   () => {
-    pesanUmum.value = 'Beberapa isian belum sesuai. Periksa kembali kolom yang ditandai.'
-    // fokus ke field pertama yang error
-    requestAnimationFrame(() =>
-      document.querySelector('[aria-invalid="true"], .p-invalid input')?.focus(),
-    )
+    pesanUmum.value = PESAN_PERIKSA
+    fokusGalat()
   },
 )
 </script>
 
 <template>
-  <form class="flex flex-col gap-6" novalidate @submit="kirim">
-    <div>
-      <h1 class="text-headline-md text-ink">Lengkapi data pribadi</h1>
-      <p class="mt-1 text-body-md text-muted">
-        Isi data berikut satu kali saja. Data digunakan Bank Mini untuk keperluan layanan rekening
-        Anda.
-      </p>
+  <form v-if="store.hasil" class="flex flex-col gap-6" novalidate @submit="kirim">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-headline-md text-ink">Data pribadi & akun</h1>
+        <p class="mt-1 text-body-md text-muted">
+          Lengkapi data berikut, lalu buat No. HP dan password untuk masuk Internet Banking.
+        </p>
+      </div>
+      <span
+        class="pill tnum"
+        :class="sisaDetik <= 120 ? 'bg-danger-soft text-danger-ink' : 'bg-hairline text-muted'"
+        data-testid="sisa-waktu"
+        role="timer"
+        aria-live="off"
+      >
+        <i class="pi pi-clock text-[11px]" aria-hidden="true" /> Sisa waktu {{ sisaWaktu }}
+      </span>
     </div>
+
+    <Message
+      v-if="kedaluwarsa"
+      severity="warn"
+      :closable="false"
+      data-testid="aktivasi-kedaluwarsa"
+    >
+      <div>Waktu aktivasi sudah habis (15 menit). Ulangi verifikasi untuk melanjutkan.</div>
+      <Button label="Ulangi verifikasi" size="small" class="mt-3" @click="ulangiVerifikasi()" />
+    </Message>
 
     <Message
       v-if="pesanUmum && submitCount > 0"
@@ -181,21 +261,22 @@ const kirim = handleSubmit(
       <dl class="grid gap-3 sm:grid-cols-2">
         <div class="rounded-xl bg-canvas p-4">
           <dt class="eyebrow mb-1">Nama lengkap</dt>
-          <dd class="text-body-lg text-ink">{{ auth.user?.nama }}</dd>
-        </div>
-        <div class="rounded-xl bg-canvas p-4">
-          <dt class="eyebrow mb-1">NIS</dt>
-          <dd class="tnum text-body-lg text-ink">{{ auth.user?.nis }}</dd>
-        </div>
-        <div class="rounded-xl bg-canvas p-4">
-          <dt class="eyebrow mb-1">Kelas</dt>
-          <dd class="text-body-lg text-ink">{{ auth.user?.kelas || '-' }}</dd>
+          <dd class="text-body-lg text-ink">{{ hasil.nama }}</dd>
         </div>
         <div class="rounded-xl bg-canvas p-4">
           <dt class="eyebrow mb-1">Jenis nasabah</dt>
           <dd class="text-body-lg text-ink" data-testid="jenis-nasabah">
-            {{ labelJenis[jenisNasabah] }}
+            {{ labelJenis[hasil.jenis_nasabah] || '-' }}
+            <template v-if="hasil.kelas"> · {{ hasil.kelas }}</template>
           </dd>
+        </div>
+        <div class="rounded-xl bg-canvas p-4">
+          <dt class="eyebrow mb-1">NISN / No. nasabah</dt>
+          <dd class="tnum text-body-lg text-ink">{{ hasil.identitas }}</dd>
+        </div>
+        <div class="rounded-xl bg-canvas p-4">
+          <dt class="eyebrow mb-1">Nomor rekening</dt>
+          <dd class="tnum text-body-lg text-ink">{{ hasil.no_rekening }}</dd>
         </div>
       </dl>
       <p class="mt-3 flex items-center gap-2 text-body-sm text-muted">
@@ -314,30 +395,7 @@ const kirim = handleSubmit(
             autocomplete="postal-code"
           />
         </FormField>
-        <FormField
-          id="no_hp"
-          label="No. HP / WhatsApp"
-          :error="errors.no_hp"
-          hint="Contoh: 081234567890"
-        >
-          <InputText
-            id="no_hp"
-            v-model="noHp"
-            inputmode="tel"
-            maxlength="13"
-            :invalid="!!errors.no_hp"
-            fluid
-            autocomplete="tel"
-          />
-        </FormField>
-        <FormField
-          id="email"
-          label="Email"
-          opsional
-          :error="errors.email"
-          hint="Untuk pemulihan password di kemudian hari."
-          class="sm:col-span-2"
-        >
+        <FormField id="email" label="Email" opsional :error="errors.email" class="sm:col-span-2">
           <InputText
             id="email"
             v-model="email"
@@ -395,12 +453,86 @@ const kirim = handleSubmit(
           <InputText
             id="wali_hp"
             v-model="waliHp"
+            type="tel"
             inputmode="tel"
-            maxlength="13"
+            maxlength="20"
             :invalid="!!errors.wali_hp"
             fluid
           />
         </FormField>
+      </div>
+    </section>
+
+    <!-- D. Akun Internet Banking -->
+    <section class="card p-5 sm:p-6" aria-labelledby="judul-d">
+      <h2 id="judul-d" class="mb-4 text-title-md text-ink">D. Akun Internet Banking</h2>
+      <div
+        class="mb-5 flex items-start gap-3 rounded-xl border-l-[3px] border-primary bg-primary-soft p-4"
+        data-testid="info-id-login"
+      >
+        <i class="pi pi-mobile mt-0.5 text-primary" aria-hidden="true" />
+        <p class="text-body-md text-ink">
+          No. HP yang Anda isi akan menjadi <strong>ID login</strong> Internet Banking. Pastikan
+          nomor aktif dan milik Anda sendiri.
+        </p>
+      </div>
+      <div class="grid gap-5 sm:grid-cols-2">
+        <FormField id="no_hp" label="No. HP" :error="errors.no_hp" hint="Contoh: 081234567890">
+          <InputText
+            id="no_hp"
+            v-model="noHp"
+            type="tel"
+            inputmode="tel"
+            maxlength="20"
+            autocomplete="tel"
+            :invalid="!!errors.no_hp"
+            fluid
+          />
+        </FormField>
+        <FormField id="no_hp_confirmation" label="Ulangi No. HP" :error="errors.no_hp_confirmation">
+          <InputText
+            id="no_hp_confirmation"
+            v-model="noHpUlang"
+            type="tel"
+            inputmode="tel"
+            maxlength="20"
+            autocomplete="off"
+            :invalid="!!errors.no_hp_confirmation"
+            fluid
+          />
+        </FormField>
+        <FormField id="password" label="Password" :error="errors.password">
+          <Password
+            v-model="password"
+            input-id="password"
+            :feedback="false"
+            toggle-mask
+            fluid
+            autocomplete="new-password"
+            :invalid="!!errors.password"
+            :input-props="{ 'aria-describedby': 'aturan-password' }"
+          />
+        </FormField>
+        <FormField
+          id="password_confirmation"
+          label="Ulangi password"
+          :error="errors.password_confirmation"
+        >
+          <Password
+            v-model="passwordUlang"
+            input-id="password_confirmation"
+            :feedback="false"
+            toggle-mask
+            fluid
+            autocomplete="new-password"
+            :invalid="!!errors.password_confirmation"
+          />
+        </FormField>
+        <AturanPassword
+          class="sm:col-span-2"
+          :password="password || ''"
+          :konteks="konteksPassword"
+        />
       </div>
     </section>
 
@@ -426,15 +558,16 @@ const kirim = handleSubmit(
 
     <div class="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p class="text-body-sm text-muted">
-        <i class="pi pi-save mr-1" aria-hidden="true" />Isian disimpan sementara di perangkat ini
-        sampai berhasil dikirim.
+        <i class="pi pi-save mr-1" aria-hidden="true" />Isian (kecuali password) disimpan sementara
+        di perangkat ini sampai berhasil dikirim.
       </p>
       <Button
         type="submit"
-        label="Simpan & lanjut ke beranda"
-        icon="pi pi-arrow-right"
+        label="Aktivasi akun"
+        icon="pi pi-check"
         icon-pos="right"
         :loading="isSubmitting"
+        :disabled="kedaluwarsa"
       />
     </div>
   </form>

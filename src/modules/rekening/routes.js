@@ -6,7 +6,7 @@ export default [
     meta: { layout: 'app', judul: 'Beranda' },
   },
   {
-    path: '/rekening/:id(\\d+)',
+    path: '/rekening/:id',
     name: 'rekening-detail',
     component: () => import('./pages/RekeningDetailPage.vue'),
     meta: { layout: 'app', judul: 'Detail rekening' },

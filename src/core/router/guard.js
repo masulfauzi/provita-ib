@@ -1,20 +1,20 @@
 /**
- * Guard alur wajib nasabah (fungsi murni agar mudah diuji).
+ * Guard route (fungsi murni agar mudah diuji).
  *
  * Urutan aturan:
- *   1. Route publik (/masuk) → bila sudah login, alihkan ke tujuan sesuai status.
- *   2. Belum login → /masuk?redirect=…
- *   3. wajibGantiPassword → hanya /ganti-password.
- *   4. !profilLengkap → hanya /lengkapi-data.
- *   5. Selain itu → semua halaman; /ganti-password & /lengkapi-data dialihkan ke beranda.
+ *   1. Route `bebas` (404, pemeliharaan) → selalu boleh.
+ *   2. Route publik (/masuk, /aktivasi) → tamu boleh; yang sudah login dialihkan ke tujuan.
+ *   3. Belum login → /masuk?redirect=…
+ *   4. Selain itu → boleh.
  *
+ * Akun dibuat lewat aktivasi sebelum login, jadi tidak ada langkah wajib setelah login.
  * Catatan: guard ini hanya untuk kenyamanan. Pembatasan sebenarnya ditegakkan API.
  */
 
 export const RUTE = {
   masuk: 'masuk',
-  gantiPassword: 'ganti-password',
-  lengkapiData: 'lengkapi-data',
+  aktivasi: 'aktivasi',
+  aktivasiData: 'aktivasi-data',
   beranda: 'beranda',
 }
 
@@ -22,50 +22,32 @@ export const RUTE = {
 export function redirectAman(nilai) {
   if (typeof nilai !== 'string') return null
   if (!nilai.startsWith('/') || nilai.startsWith('//') || nilai.startsWith('/\\')) return null
-  if (nilai.startsWith('/masuk')) return null
+  if (nilai.startsWith('/masuk') || nilai.startsWith('/aktivasi')) return null
   return nilai
 }
 
 /** Ke mana nasabah diarahkan setelah login / saat membuka halaman publik. */
-export function tujuanSesuaiStatus(status, redirect) {
-  if (status.wajibGantiPassword) return { name: RUTE.gantiPassword }
-  if (!status.profilLengkap) return { name: RUTE.lengkapiData }
+export function tujuanSetelahMasuk(redirect) {
   return redirectAman(redirect) || { name: RUTE.beranda }
 }
 
 /**
  * @param {{ name?: string, fullPath: string, query?: object, meta?: object }} to
- * @param {{ masuk: boolean, wajibGantiPassword: boolean, profilLengkap: boolean }} status
+ * @param {{ masuk: boolean }} status
  * @returns {true | object | string}
  */
 export function resolveGuard(to, status) {
   const meta = to.meta || {}
   if (meta.bebas) return true
 
-  // 1. Halaman publik
   if (meta.publik) {
-    return status.masuk ? tujuanSesuaiStatus(status, to.query?.redirect) : true
+    return status.masuk ? tujuanSetelahMasuk(to.query?.redirect) : true
   }
 
-  // 2. Belum login
   if (!status.masuk) {
     const query = to.fullPath && to.fullPath !== '/' ? { redirect: to.fullPath } : {}
     return { name: RUTE.masuk, query }
   }
 
-  // 3. Wajib ganti password
-  if (status.wajibGantiPassword) {
-    return to.name === RUTE.gantiPassword ? true : { name: RUTE.gantiPassword }
-  }
-
-  // 4. Wajib lengkapi data
-  if (!status.profilLengkap) {
-    return to.name === RUTE.lengkapiData ? true : { name: RUTE.lengkapiData }
-  }
-
-  // 5. Onboarding selesai
-  if (to.name === RUTE.gantiPassword || to.name === RUTE.lengkapiData) {
-    return { name: RUTE.beranda }
-  }
   return true
 }

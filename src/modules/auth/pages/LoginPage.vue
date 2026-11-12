@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import InputText from 'primevue/inputtext'
@@ -10,7 +10,8 @@ import Message from 'primevue/message'
 import Dialog from 'primevue/dialog'
 import FormField from '@/core/ui/forms/FormField.vue'
 import { useAuthStore } from '@/core/stores/auth'
-import { tujuanSesuaiStatus } from '@/core/router/guard'
+import { tujuanSetelahMasuk } from '@/core/router/guard'
+import { useHitungMundur } from '@/core/composables/useHitungMundur'
 import { pesanBatas, PESAN } from '@/core/http/errors'
 import { schemaLogin } from '../schema'
 
@@ -20,16 +21,16 @@ const router = useRouter()
 
 const { defineField, handleSubmit, errors, isSubmitting } = useForm({
   validationSchema: toTypedSchema(schemaLogin),
-  initialValues: { nis: '', password: '' },
+  // No. HP terisi otomatis setelah aktivasi berhasil (dikirim lewat history.state, bukan URL).
+  initialValues: { no_hp: window.history.state?.noHp || '', password: '' },
 })
-const [nis, nisAttrs] = defineField('nis')
+const [noHp, noHpAttrs] = defineField('no_hp')
 const [password, passwordAttrs] = defineField('password')
 
 const galat = ref('')
 const sisaPercobaan = ref(null)
-const tungguDetik = ref(0)
 const lupaPassword = ref(false)
-let timer = null
+const { sisa: tungguDetik, mulai: mulaiTunggu } = useHitungMundur(() => (galat.value = ''))
 
 const infoAlasan = computed(
   () =>
@@ -40,32 +41,23 @@ const infoAlasan = computed(
         teks: 'Anda otomatis keluar karena tidak ada aktivitas selama 10 menit.',
       },
       keluar: { severity: 'success', teks: 'Anda telah keluar. Sampai jumpa lagi!' },
+      aktivasi: {
+        severity: 'success',
+        teks: 'Aktivasi berhasil. Silakan masuk menggunakan No. HP dan password Anda.',
+      },
     })[route.query.alasan],
 )
-
-function mulaiTunggu(detik) {
-  tungguDetik.value = detik
-  clearInterval(timer)
-  timer = setInterval(() => {
-    tungguDetik.value -= 1
-    if (tungguDetik.value <= 0) {
-      clearInterval(timer)
-      galat.value = ''
-    }
-  }, 1000)
-}
-onBeforeUnmount(() => clearInterval(timer))
 
 const masuk = handleSubmit(async (v) => {
   galat.value = ''
   sisaPercobaan.value = null
   try {
     await auth.login(v)
-    await router.replace(tujuanSesuaiStatus(auth, route.query.redirect))
+    await router.replace(tujuanSetelahMasuk(route.query.redirect))
   } catch (e) {
-    if (e.tipe === 'validasi' || e.tipe === 'auth') {
-      // Pesan umum: tidak membedakan NIS tidak ditemukan dan password salah.
-      galat.value = 'NIS atau password salah.'
+    if (e.tipe === 'validasi') {
+      // Pesan umum dari API: tidak membedakan No. HP tidak terdaftar dan password salah.
+      galat.value = e.fieldErrors?.no_hp || 'No. HP atau password salah.'
       sisaPercobaan.value = e.data?.sisa_percobaan ?? null
     } else if (e.tipe === 'batas') {
       galat.value = pesanBatas(e.retryAfter)
@@ -83,7 +75,7 @@ const masuk = handleSubmit(async (v) => {
       <p class="mb-1 text-label-sm uppercase text-primary">Internet Banking Nasabah</p>
       <h1 class="text-headline-md text-ink">Masuk ke akun Anda</h1>
       <p class="mt-1 text-body-md text-muted">
-        Gunakan NIS / No. Rekening dan password dari petugas Bank Mini.
+        Gunakan No. HP dan password yang Anda buat saat aktivasi.
       </p>
     </div>
 
@@ -108,16 +100,18 @@ const masuk = handleSubmit(async (v) => {
     </Message>
 
     <form class="flex flex-col gap-5" novalidate @submit="masuk">
-      <FormField id="nis" label="NIS / No. Rekening" :error="errors.nis">
+      <FormField id="no_hp" label="No. HP" :error="errors.no_hp">
         <InputText
-          id="nis"
-          v-model="nis"
-          v-bind="nisAttrs"
-          inputmode="numeric"
+          id="no_hp"
+          v-model="noHp"
+          v-bind="noHpAttrs"
+          type="tel"
+          inputmode="tel"
           autocomplete="username"
-          placeholder="Contoh: 25041"
-          :invalid="!!errors.nis"
-          :aria-describedby="errors.nis ? 'nis-error' : undefined"
+          placeholder="08xxxxxxxxxx"
+          maxlength="20"
+          :invalid="!!errors.no_hp"
+          :aria-describedby="errors.no_hp ? 'no_hp-error' : undefined"
           fluid
         />
       </FormField>
@@ -141,7 +135,7 @@ const masuk = handleSubmit(async (v) => {
           class="text-label-md text-primary hover:underline"
           @click="lupaPassword = true"
         >
-          Lupa password?
+          Lupa password atau ganti nomor?
         </button>
       </div>
 
@@ -155,6 +149,16 @@ const masuk = handleSubmit(async (v) => {
         class="w-full"
       />
     </form>
+
+    <p class="mt-5 text-center text-body-md text-muted">
+      Belum punya akun?
+      <RouterLink
+        :to="{ name: 'aktivasi' }"
+        class="font-semibold text-primary hover:underline"
+        data-testid="tautan-aktivasi"
+        >Aktivasi di sini</RouterLink
+      >
+    </p>
 
     <div
       class="mt-6 flex items-start gap-3 rounded-xl border-l-[3px] border-primary bg-primary-soft p-4"
@@ -170,7 +174,7 @@ const masuk = handleSubmit(async (v) => {
     <Dialog
       v-model:visible="lupaPassword"
       modal
-      header="Lupa password?"
+      header="Lupa password atau ganti nomor?"
       :draggable="false"
       class="w-[min(28rem,calc(100vw-2rem))]"
     >
@@ -182,12 +186,12 @@ const masuk = handleSubmit(async (v) => {
         </div>
         <div class="text-body-md text-ink">
           <p class="mb-2">
-            Untuk mereset password, silakan datang ke
-            <strong>Ruang Bank Mini SMKN 2 Semarang</strong> pada jam sekolah dengan membawa kartu
-            pelajar / identitas.
+            Silakan datang ke <strong>teller Bank Mini SMKN 2 Semarang</strong> pada jam sekolah
+            dengan membawa kartu pelajar / identitas, lalu minta <strong>reset akun IB</strong>.
           </p>
           <p class="text-muted">
-            Petugas akan memberikan password sementara yang wajib Anda ganti saat masuk berikutnya.
+            Setelah direset, lakukan aktivasi ulang untuk membuat No. HP dan password baru. Petugas
+            tidak akan pernah menanyakan password Anda.
           </p>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { keSen, rupiah, samarkanRekening, tanggal, terbilang } from '../format'
+import { keSen, normalisasiHp, rupiah, samarkanRekening, tanggal, terbilang } from '../format'
 
 describe('keSen', () => {
   it('membaca string desimal & integer tanpa galat float', () => {
@@ -61,4 +61,14 @@ describe('terbilang', () => {
     expect(terbilang(1000)).toBe('seribu rupiah')
     expect(terbilang(0)).toBe('nol rupiah')
   })
+})
+
+describe('normalisasiHp', () => {
+  it.each([
+    ['081234567890', '081234567890'],
+    ['0812-3456-7890', '081234567890'],
+    ['+62 812 3456 7890', '081234567890'],
+    ['6281234567890', '081234567890'],
+    ['', ''],
+  ])('%s → %s', (masuk, keluar) => expect(normalisasiHp(masuk)).toBe(keluar))
 })

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import PageHeader from '@/core/ui/PageHeader.vue'
@@ -11,6 +11,7 @@ import { useAuthStore } from '@/core/stores/auth'
 import { useKeluar } from '@/core/composables/useKeluar'
 import { jam, tanggal, tanggalPanjang } from '@/core/utils/format'
 import { useProfilStore } from '../store'
+import GantiNoHpDialog from '../components/GantiNoHpDialog.vue'
 
 const auth = useAuthStore()
 const store = useProfilStore()
@@ -29,7 +30,7 @@ const inisial = computed(() =>
     .join('')
     .toUpperCase(),
 )
-const labelJenis = { siswa: 'Siswa', guru: 'Guru', karyawan: 'Karyawan' }
+const labelJenis = { siswa: 'Siswa', guru: 'Guru', karyawan: 'Karyawan', lembaga: 'Lembaga' }
 const labelHubungan = { ayah: 'Ayah', ibu: 'Ibu', wali: 'Wali' }
 
 const alamat = computed(() => {
@@ -57,10 +58,22 @@ const kolom = computed(() => [
     label: 'Jenis kelamin',
     nilai: { L: 'Laki-laki', P: 'Perempuan' }[p.value.jenis_kelamin] || '-',
   },
-  { label: 'No. HP / WhatsApp', nilai: p.value.no_hp || '-', tnum: true },
   { label: 'Email', nilai: p.value.email || '-' },
   { label: 'Alamat', nilai: alamat.value, lebar: true },
 ])
+
+const noHpLogin = computed(() => auth.user?.no_hp || p.value.no_hp || '-')
+const dialogNoHp = ref(false)
+
+function noHpDiganti({ message, no_hp }) {
+  if (store.data && no_hp) store.data.no_hp = no_hp
+  toast.add({
+    severity: 'success',
+    summary: 'No. HP berhasil diganti',
+    detail: message || 'Gunakan No. HP baru untuk masuk berikutnya.',
+    life: 5000,
+  })
+}
 
 function passwordDiganti() {
   toast.add({ severity: 'success', summary: 'Password berhasil diganti', life: 4000 })
@@ -72,7 +85,7 @@ function passwordDiganti() {
     <PageHeader
       eyebrow="Akun saya"
       judul="Profil & keamanan"
-      subjudul="Lihat data pribadi Anda, ganti password, dan pantau aktivitas login."
+      subjudul="Lihat data pribadi Anda, ganti No. HP atau password, dan pantau aktivitas login."
     >
       <Button
         label="Keluar"
@@ -213,6 +226,35 @@ function passwordDiganti() {
 
       <!-- Keamanan -->
       <div class="flex flex-col gap-6">
+        <section class="card p-5 sm:p-6" aria-labelledby="judul-hp">
+          <div class="mb-4 flex items-start gap-3">
+            <span
+              class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary"
+              aria-hidden="true"
+            >
+              <i class="pi pi-mobile" />
+            </span>
+            <div>
+              <h2 id="judul-hp" class="text-title-md text-ink">No. HP login</h2>
+              <p class="text-body-sm text-muted">Dipakai untuk masuk Internet Banking.</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-canvas p-4">
+            <span class="tnum text-title-md text-ink" data-testid="no-hp-login">{{
+              noHpLogin
+            }}</span>
+            <Button
+              label="Ganti No. HP"
+              icon="pi pi-pencil"
+              size="small"
+              severity="secondary"
+              outlined
+              data-testid="tombol-ganti-hp"
+              @click="dialogNoHp = true"
+            />
+          </div>
+        </section>
+
         <section class="card p-5 sm:p-6" aria-labelledby="judul-password">
           <div class="mb-5 flex items-start gap-3">
             <span
@@ -243,5 +285,6 @@ function passwordDiganti() {
         </section>
       </div>
     </div>
+    <GantiNoHpDialog v-model:visible="dialogNoHp" @berhasil="noHpDiganti" />
   </div>
 </template>

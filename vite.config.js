@@ -27,6 +27,14 @@ export default defineConfig(({ command, mode }) => {
       command === 'serve' && vueDevTools(),
       tanpaMockWorker(env.VITE_USE_MOCK === 'true'),
     ].filter(Boolean),
+    server: {
+      // Mode API sungguhan (`npm run dev:api`): /api & /sanctum diteruskan ke Laravel sehingga
+      // browser melihat satu origin (localhost:5173) — tanpa CORS, cookie sesi tetap first-party.
+      proxy: {
+        '/api': { target: env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000' },
+        '/sanctum': { target: env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000' },
+      },
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -1,17 +1,13 @@
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import Button from 'primevue/button'
+import { RouterLink, useRoute } from 'vue-router'
 import AppLogo from '@/core/ui/AppLogo.vue'
-import AutoLogoutDialog from '@/core/ui/AutoLogoutDialog.vue'
-import { useKeluar } from '@/core/composables/useKeluar'
 
 const route = useRoute()
-const { keluar, sedangKeluar } = useKeluar()
 
 const langkah = [
-  { no: 1, label: 'Ganti Password' },
-  { no: 2, label: 'Data Pribadi' },
+  { no: 1, label: 'Verifikasi' },
+  { no: 2, label: 'Data & password' },
 ]
 const sekarang = computed(() => route.meta?.langkah || 1)
 </script>
@@ -19,16 +15,14 @@ const sekarang = computed(() => route.meta?.langkah || 1)
 <template>
   <div class="min-h-dvh bg-canvas">
     <header class="sticky top-0 z-30 border-b border-outline/70 bg-card/90 backdrop-blur">
-      <div class="mx-auto flex h-16 max-w-3xl items-center justify-between px-4">
+      <div class="mx-auto flex h-16 max-w-3xl items-center justify-between gap-3 px-4">
         <AppLogo />
-        <Button
-          label="Keluar"
-          icon="pi pi-sign-out"
-          severity="secondary"
-          text
-          :loading="sedangKeluar"
-          @click="keluar('keluar')"
-        />
+        <p class="text-body-sm text-muted">
+          <span class="hidden sm:inline">Sudah punya akun?</span>
+          <RouterLink :to="{ name: 'masuk' }" class="font-semibold text-primary hover:underline">
+            Masuk
+          </RouterLink>
+        </p>
       </div>
     </header>
 
@@ -62,7 +56,5 @@ const sekarang = computed(() => route.meta?.langkah || 1)
       </ol>
       <slot />
     </main>
-
-    <AutoLogoutDialog />
   </div>
 </template>

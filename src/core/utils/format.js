@@ -182,3 +182,17 @@ export function terbilang(nilai, { satuan = 'rupiah' } = {}) {
   const teks = terbilangBulat(Math.abs(bulat)).replace(/\s+/g, ' ').trim()
   return `${bulat < 0 ? 'minus ' : ''}${teks} ${satuan}`.trim()
 }
+
+/** Pola No. HP baku (setelah dinormalisasi). */
+export const POLA_HP = /^08\d{8,11}$/
+
+/**
+ * Normalisasi No. HP seperti API: buang spasi/strip/titik/kurung, `+62…`/`62…` → `0…`.
+ * `+62 812-3456-7890` → `081234567890`. Nilai yang bukan nomor dikembalikan apa adanya (sudah dibersihkan).
+ */
+export function normalisasiHp(nilai) {
+  const s = String(nilai ?? '').replace(/[\s\-.()]/g, '')
+  if (s.startsWith('+62')) return `0${s.slice(3)}`
+  if (s.startsWith('62')) return `0${s.slice(2)}`
+  return s
+}

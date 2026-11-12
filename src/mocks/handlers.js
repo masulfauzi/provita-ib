@@ -1,7 +1,8 @@
 /**
  * Handler MSW untuk semua endpoint di Lampiran Kontrak API.
- * Aturan wajib (403 WAJIB_GANTI_PASSWORD / WAJIB_LENGKAPI_DATA, rate limit login,
- * batas rentang mutasi 3 bulan) ditiru agar perilaku frontend sama seperti dengan API asli.
+ * Aturan API (aktivasi 2 langkah dengan sesi 15 menit, 409 SUDAH_AKTIVASI, 403 VERIFIKASI_DIPERLUKAN,
+ * login No. HP, rate limit, batas rentang mutasi 3 bulan) ditiru agar perilaku frontend sama seperti
+ * dengan API asli.
  *
  * Skenario uji tampilan: tambahkan `?mock=error|lambat|kosong` di URL (`?mock=normal` untuk kembali).
  */
@@ -17,35 +18,37 @@ import {
   tanpaMutasi,
 } from './data'
 import { buatPdf } from './pdf'
+import { normalisasiHp } from '@/core/utils/format'
 
-const KUNCI_DB = 'ib-mock:db'
+const KUNCI_DB = 'ib-mock:db:v2'
 const KUNCI_SKENARIO = 'ib-mock:skenario'
 
 /* ---------- penyimpanan state mock (sessionStorage, khusus mode mock) ---------- */
 
+function riwayatContoh() {
+  return [
+    {
+      waktu: new Date(Date.now() - 86400000 * 2).toISOString(),
+      perangkat: 'Chrome · Android',
+      ip: '10.10.2.15',
+    },
+    {
+      waktu: new Date(Date.now() - 86400000 * 6).toISOString(),
+      perangkat: 'Firefox · Windows',
+      ip: '10.10.1.33',
+    },
+  ]
+}
+
+/** `akun[nis]` = null bila nasabah belum aktivasi. */
 function dbAwal() {
   const akun = {}
   for (const a of AKUN_CONTOH) {
-    akun[a.nis] = {
-      password: a.password,
-      wajib_ganti_password: a.wajib_ganti_password,
-      profil_lengkap: a.profil_lengkap,
-      profil: a.profil,
-      riwayat_login: [
-        {
-          waktu: new Date(Date.now() - 86400000 * 2).toISOString(),
-          perangkat: 'Chrome · Android',
-          ip: '10.10.2.15',
-        },
-        {
-          waktu: new Date(Date.now() - 86400000 * 6).toISOString(),
-          perangkat: 'Firefox · Windows',
-          ip: '10.10.1.33',
-        },
-      ],
-    }
+    akun[a.nis] = a.no_hp
+      ? { no_hp: a.no_hp, password: a.password, profil: a.profil, riwayat_login: riwayatContoh() }
+      : null
   }
-  return { akun, sesi: null, gagal: {} }
+  return { akun, sesi: null, gagal: {}, aktivasi: null }
 }
 
 let memori = null
@@ -113,43 +116,49 @@ function akunAsli(nis) {
   return AKUN_CONTOH.find((a) => a.nis === nis)
 }
 
-/**
- * Cek sesi + aturan onboarding.
- * @param {('password'|'profil')[]} izin endpoint yang tetap boleh selama onboarding belum selesai
- */
-function cekSesi(izin = []) {
+/** Cek sesi login. */
+function cekSesi() {
   const db = bacaDb()
   if (!db.sesi || !db.akun[db.sesi]) return { gagal: tidakTerautentikasi() }
-  const st = db.akun[db.sesi]
-  if (st.wajib_ganti_password && !izin.includes('password')) {
-    return {
-      gagal: json({ message: 'Anda wajib mengganti password.', kode: 'WAJIB_GANTI_PASSWORD' }, 403),
-    }
-  }
-  if (!st.profil_lengkap && !izin.includes('profil')) {
-    return {
-      gagal: json(
-        { message: 'Anda wajib melengkapi data pribadi.', kode: 'WAJIB_LENGKAPI_DATA' },
-        403,
-      ),
-    }
-  }
-  return { db, nis: db.sesi, st, akun: akunAsli(db.sesi) }
+  return { db, nis: db.sesi, st: db.akun[db.sesi], akun: akunAsli(db.sesi) }
 }
+
+const identitasTampil = (akun) => (akun.jenis_nasabah === 'siswa' ? akun.nis : akun.nomor)
 
 function dataMe(akun, st) {
   return {
     id: akun.id,
-    nis: akun.nis,
+    nis: identitasTampil(akun),
     nama: akun.nama,
     nama_panggilan: akun.nama_panggilan,
     kelas: akun.kelas,
     jenis_nasabah: akun.jenis_nasabah,
     nomor_rekening: dataRekening(akun).map((r) => r.no_rekening),
-    wajib_ganti_password: st.wajib_ganti_password,
-    profil_lengkap: st.profil_lengkap,
+    no_hp: st.no_hp,
     login_terakhir: st.riwayat_login[1]?.waktu ?? null,
   }
+}
+
+/** Identitas yang tidak boleh dipakai sebagai password. */
+function identitasTerlarang(akun, noHp) {
+  return [
+    akun.nis,
+    akun.nisn,
+    akun.nomor,
+    akun.nomor?.replace(/^NSB-/, ''),
+    noHp,
+    ...dataRekening(akun).map((r) => r.no_rekening),
+  ].filter(Boolean)
+}
+
+function nisDariHp(db, noHp) {
+  return Object.keys(db.akun).find((nis) => db.akun[nis]?.no_hp === noHp)
+}
+
+const SUDAH_AKTIVASI = {
+  message:
+    'Akun sudah diaktivasi. Silakan masuk dengan No. HP dan password. Lupa password atau ganti No. HP? Hubungi teller.',
+  kode: 'SUDAH_AKTIVASI',
 }
 
 function rekeningMilik(akun, id) {
@@ -204,57 +213,221 @@ export function mutasiPeriode(rek, dari, sampai) {
   }
 }
 
-function aturanPasswordServer(baru, { lama, nis, noRekening }) {
+function aturanPasswordServer(baru, { lama, terlarang }) {
   if (!baru || baru.length < 8) return 'Password minimal 8 karakter.'
   if (!/[A-Za-z]/.test(baru) || !/\d/.test(baru))
     return 'Password harus mengandung huruf dan angka.'
-  if (baru === lama) return 'Password baru tidak boleh sama dengan password lama.'
-  if (baru === nis || noRekening.includes(baru))
-    return 'Password tidak boleh sama dengan NIS / nomor rekening.'
+  if (lama !== undefined && baru === lama)
+    return 'Password baru tidak boleh sama dengan password lama.'
+  if (terlarang.map((t) => t.toLowerCase()).includes(baru.toLowerCase()))
+    return 'Password tidak boleh sama dengan NIS/NISN, No. HP, atau nomor rekening.'
   return null
 }
 
+const POLA_HP = /^08\d{8,11}$/
+
+/** Validasi field data pribadi (ProfilInput). */
+function validasiProfil(b, jenis) {
+  const wajib = {
+    tempat_lahir: 'Tempat lahir',
+    tanggal_lahir: 'Tanggal lahir',
+    jenis_kelamin: 'Jenis kelamin',
+    alamat_jalan: 'Alamat',
+    rt: 'RT',
+    rw: 'RW',
+    kelurahan: 'Kelurahan',
+    kecamatan: 'Kecamatan',
+    kota: 'Kota/kabupaten',
+    kode_pos: 'Kode pos',
+  }
+  if (jenis === 'siswa') {
+    Object.assign(wajib, {
+      wali_nama: 'Nama orang tua/wali',
+      wali_hubungan: 'Hubungan',
+      wali_hp: 'No. HP orang tua/wali',
+    })
+  }
+  const errors = {}
+  for (const [k, label] of Object.entries(wajib)) {
+    if (!b[k] || !String(b[k]).trim()) errors[k] = [`${label} wajib diisi.`]
+  }
+  if (b.kode_pos && !/^\d{5}$/.test(b.kode_pos)) errors.kode_pos = ['Kode pos berisi 5 angka.']
+  if (b.wali_hp && !POLA_HP.test(normalisasiHp(b.wali_hp)))
+    errors.wali_hp = ['Format No. HP tidak valid.']
+  if (b.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email))
+    errors.email = ['Format email tidak valid.']
+  return errors
+}
+
+const FIELD_PROFIL = [
+  'tempat_lahir',
+  'tanggal_lahir',
+  'jenis_kelamin',
+  'alamat_jalan',
+  'rt',
+  'rw',
+  'kelurahan',
+  'kecamatan',
+  'kota',
+  'kode_pos',
+  'email',
+  'wali_nama',
+  'wali_hubungan',
+  'wali_hp',
+]
+const ambilProfil = (b) => Object.fromEntries(FIELD_PROFIL.map((k) => [k, b[k] ?? null]))
+
 const BATAS_GAGAL = 5
 const JENDELA_MS = 60_000
+
+/**
+ * Batas 5 gagal per menit per kunci.
+ * Mengembalikan { gagal: Response 429 } atau { catatGagal() → sisa_percobaan, berhasil() }.
+ */
+function cekBatas(db, kunci, pesan) {
+  const sekarang = Date.now()
+  const daftar = (db.gagal[kunci] || []).filter((t) => sekarang - t < JENDELA_MS)
+  if (daftar.length >= BATAS_GAGAL) {
+    const tunggu = Math.ceil((JENDELA_MS - (sekarang - daftar[0])) / 1000)
+    return {
+      gagal: json({ message: pesan, retry_after: tunggu }, 429, { 'Retry-After': String(tunggu) }),
+    }
+  }
+  return {
+    catatGagal() {
+      daftar.push(sekarang)
+      db.gagal[kunci] = daftar
+      simpanDb(db)
+      return Math.max(0, BATAS_GAGAL - daftar.length)
+    },
+    berhasil() {
+      delete db.gagal[kunci]
+    },
+  }
+}
 
 /* ---------- handler ---------- */
 
 export const handlers = [
   http.get('*/sanctum/csrf-cookie', () => new HttpResponse(null, { status: 204 })),
 
-  http.post('*/nasabah/login', async ({ request }) => {
+  http.post('*/nasabah/aktivasi/cek', async ({ request }) => {
     await delay(400)
-    const { nis = '', password = '' } = (await request.json().catch(() => ({}))) || {}
-    const db = bacaDb()
-    const kunci = String(nis)
-    const sekarang = Date.now()
-    const gagal = (db.gagal[kunci] || []).filter((t) => sekarang - t < JENDELA_MS)
-
-    if (gagal.length >= BATAS_GAGAL) {
-      const tunggu = Math.ceil((JENDELA_MS - (sekarang - gagal[0])) / 1000)
-      return json({ message: 'Terlalu banyak percobaan.', retry_after: tunggu }, 429, {
-        'Retry-After': String(tunggu),
-      })
+    const b = (await request.json().catch(() => ({}))) || {}
+    const identitas = String(b.identitas || '')
+      .trim()
+      .toUpperCase()
+    const noRek = String(b.no_rekening || '').replace(/[\s.-]/g, '')
+    if (!identitas || !noRek) {
+      const errors = {}
+      if (!identitas) errors.identitas = ['NISN/No. nasabah wajib diisi.']
+      if (!noRek) errors.no_rekening = ['Nomor rekening wajib diisi.']
+      return validasi(errors)
     }
+    const db = bacaDb()
+    const r = cekBatas(db, `aktivasi:${identitas}`, 'Terlalu banyak percobaan aktivasi.')
+    if (r.gagal) return r.gagal
 
-    const akun = akunAsli(kunci)
-    const st = db.akun[kunci]
-    if (!akun || !st || st.password !== password) {
-      gagal.push(sekarang)
-      db.gagal[kunci] = gagal
-      simpanDb(db)
+    const nomor = identitas.startsWith('NSB-') ? identitas : `NSB-${identitas.padStart(6, '0')}`
+    const akun = AKUN_CONTOH.find((a) =>
+      a.jenis_nasabah === 'siswa' ? a.nisn === identitas : a.nomor === nomor,
+    )
+    const cocok = akun && dataRekening(akun).some((rek) => rek.no_rekening === noRek)
+    if (!cocok) {
+      const pesan = 'NISN/No. nasabah atau nomor rekening tidak cocok.'
+      return json(
+        { message: pesan, errors: { identitas: [pesan] }, sisa_percobaan: r.catatGagal() },
+        422,
+      )
+    }
+    r.berhasil()
+    if (db.akun[akun.nis]) return json(SUDAH_AKTIVASI, 409)
+
+    const berlaku = new Date(Date.now() + 15 * 60_000)
+    db.aktivasi = { nis: akun.nis, berlaku: berlaku.getTime() }
+    simpanDb(db)
+    return json({
+      data: {
+        nama: akun.nama,
+        kelas: akun.kelas,
+        jenis_nasabah: akun.jenis_nasabah,
+        wajib_wali: akun.jenis_nasabah === 'siswa',
+        berlaku_sampai: berlaku.toISOString(),
+      },
+    })
+  }),
+
+  http.post('*/nasabah/aktivasi', async ({ request }) => {
+    await delay(500)
+    const db = bacaDb()
+    const sesi = db.aktivasi
+    if (!sesi || sesi.berlaku < Date.now()) {
       return json(
         {
-          message: 'NIS atau password salah.',
-          errors: { nis: ['NIS atau password salah.'] },
-          sisa_percobaan: Math.max(0, BATAS_GAGAL - gagal.length),
+          message:
+            'Sesi aktivasi tidak ditemukan atau sudah kedaluwarsa. Ulangi verifikasi NISN/No. nasabah dan nomor rekening.',
+          kode: 'VERIFIKASI_DIPERLUKAN',
+        },
+        403,
+      )
+    }
+    if (db.akun[sesi.nis]) return json(SUDAH_AKTIVASI, 409)
+    const akun = akunAsli(sesi.nis)
+    const b = (await request.json().catch(() => ({}))) || {}
+    const errors = validasiProfil(b, akun.jenis_nasabah)
+    const hp = normalisasiHp(b.no_hp)
+    if (!hp) errors.no_hp = ['No. HP wajib diisi.']
+    else if (!POLA_HP.test(hp)) errors.no_hp = ['Format No. HP tidak valid.']
+    else if (nisDariHp(db, hp)) errors.no_hp = ['No. HP sudah dipakai akun lain.']
+    else if (hp !== normalisasiHp(b.no_hp_confirmation))
+      errors.no_hp_confirmation = ['Konfirmasi No. HP tidak sama.']
+    const salah = aturanPasswordServer(b.password, { terlarang: identitasTerlarang(akun, hp) })
+    if (salah) errors.password = [salah]
+    else if (b.password !== b.password_confirmation)
+      errors.password_confirmation = ['Konfirmasi password tidak sama.']
+    if (b.persetujuan !== true) errors.persetujuan = ['Persetujuan wajib dicentang.']
+    if (Object.keys(errors).length) return validasi(errors)
+
+    db.akun[sesi.nis] = {
+      no_hp: hp,
+      password: b.password,
+      profil: ambilProfil(b),
+      riwayat_login: [],
+    }
+    db.aktivasi = null
+    simpanDb(db)
+    return json(
+      {
+        message: 'Aktivasi berhasil. Silakan masuk menggunakan No. HP dan password Anda.',
+        data: { no_hp: hp },
+      },
+      201,
+    )
+  }),
+
+  http.post('*/nasabah/login', async ({ request }) => {
+    await delay(400)
+    const b = (await request.json().catch(() => ({}))) || {}
+    const hp = normalisasiHp(b.no_hp)
+    const db = bacaDb()
+    const r = cekBatas(db, `login:${hp}`, 'Terlalu banyak percobaan.')
+    if (r.gagal) return r.gagal
+
+    const nis = nisDariHp(db, hp)
+    const st = nis && db.akun[nis]
+    if (!st || st.password !== b.password) {
+      return json(
+        {
+          message: 'No. HP atau password salah.',
+          errors: { no_hp: ['No. HP atau password salah.'] },
+          sisa_percobaan: r.catatGagal(),
         },
         422,
       )
     }
 
-    delete db.gagal[kunci]
-    db.sesi = kunci
+    r.berhasil()
+    db.sesi = nis
     st.riwayat_login.unshift({
       waktu: new Date().toISOString(),
       perangkat: navigator.userAgent.includes('Mobile') ? 'Peramban · HP' : 'Peramban · Komputer',
@@ -262,7 +435,7 @@ export const handlers = [
     })
     st.riwayat_login = st.riwayat_login.slice(0, 10)
     simpanDb(db)
-    return json({ data: dataMe(akun, st) })
+    return json({ data: dataMe(akunAsli(nis), st) })
   }),
 
   http.post('*/nasabah/logout', () => {
@@ -274,14 +447,14 @@ export const handlers = [
 
   http.get('*/nasabah/me', async () => {
     await delay(150)
-    const c = cekSesi(['password', 'profil'])
+    const c = cekSesi()
     if (c.gagal) return c.gagal
     return json({ data: dataMe(c.akun, c.st) })
   }),
 
   http.put('*/nasabah/password', async ({ request }) => {
     await delay(400)
-    const c = cekSesi(['password', 'profil'])
+    const c = cekSesi()
     if (c.gagal) return c.gagal
     const body = (await request.json().catch(() => ({}))) || {}
     if (body.password_lama !== c.st.password) {
@@ -289,31 +462,50 @@ export const handlers = [
     }
     const salah = aturanPasswordServer(body.password, {
       lama: body.password_lama,
-      nis: c.nis,
-      noRekening: dataRekening(c.akun).map((r) => r.no_rekening),
+      terlarang: identitasTerlarang(c.akun, c.st.no_hp),
     })
     if (salah) return validasi({ password: [salah] })
     if (body.password !== body.password_confirmation) {
       return validasi({ password_confirmation: ['Konfirmasi password tidak sama.'] })
     }
     c.st.password = body.password
-    c.st.wajib_ganti_password = false
     simpanDb(c.db)
     return json({ message: 'Password berhasil diganti.' })
   }),
 
+  http.put('*/nasabah/no-hp', async ({ request }) => {
+    await delay(400)
+    const c = cekSesi()
+    if (c.gagal) return c.gagal
+    const b = (await request.json().catch(() => ({}))) || {}
+    if (b.password !== c.st.password) return validasi({ password: ['Password saat ini salah.'] })
+    const hp = normalisasiHp(b.no_hp)
+    if (!POLA_HP.test(hp)) return validasi({ no_hp: ['Format No. HP tidak valid.'] })
+    if (hp === c.st.no_hp) return validasi({ no_hp: ['No. HP baru sama dengan No. HP sekarang.'] })
+    if (nisDariHp(c.db, hp)) return validasi({ no_hp: ['No. HP sudah dipakai akun lain.'] })
+    if (hp !== normalisasiHp(b.no_hp_confirmation))
+      return validasi({ no_hp_confirmation: ['Konfirmasi No. HP tidak sama.'] })
+    c.st.no_hp = hp
+    simpanDb(c.db)
+    return json({
+      message: 'No. HP berhasil diganti. Gunakan No. HP baru untuk masuk berikutnya.',
+      data: { no_hp: hp },
+    })
+  }),
+
   http.get('*/nasabah/profil', async () => {
-    const c = cekSesi(['profil'])
+    const c = cekSesi()
     if (c.gagal) return c.gagal
     const s = await terapkanSkenario()
     if (s) return s
     return json({
       data: {
         nama: c.akun.nama,
-        nis: c.akun.nis,
+        nis: identitasTampil(c.akun),
         kelas: c.akun.kelas,
         jenis_nasabah: c.akun.jenis_nasabah,
         ...c.st.profil,
+        no_hp: c.st.no_hp,
         riwayat_login: c.st.riwayat_login,
       },
     })
@@ -321,46 +513,14 @@ export const handlers = [
 
   http.put('*/nasabah/profil', async ({ request }) => {
     await delay(500)
-    const c = cekSesi(['profil'])
+    const c = cekSesi()
     if (c.gagal) return c.gagal
     const b = (await request.json().catch(() => ({}))) || {}
-    const wajib = {
-      tempat_lahir: 'Tempat lahir',
-      tanggal_lahir: 'Tanggal lahir',
-      jenis_kelamin: 'Jenis kelamin',
-      alamat_jalan: 'Alamat',
-      rt: 'RT',
-      rw: 'RW',
-      kelurahan: 'Kelurahan',
-      kecamatan: 'Kecamatan',
-      kota: 'Kota/kabupaten',
-      kode_pos: 'Kode pos',
-      no_hp: 'No. HP',
-    }
-    if (c.akun.jenis_nasabah === 'siswa') {
-      Object.assign(wajib, {
-        wali_nama: 'Nama orang tua/wali',
-        wali_hubungan: 'Hubungan',
-        wali_hp: 'No. HP orang tua/wali',
-      })
-    }
-    const errors = {}
-    for (const [k, label] of Object.entries(wajib)) {
-      if (!b[k] || !String(b[k]).trim()) errors[k] = [`${label} wajib diisi.`]
-    }
-    if (b.no_hp && !/^08\d{8,11}$/.test(b.no_hp)) errors.no_hp = ['Format No. HP tidak valid.']
-    if (b.wali_hp && !/^08\d{8,11}$/.test(b.wali_hp))
-      errors.wali_hp = ['Format No. HP tidak valid.']
-    if (b.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email))
-      errors.email = ['Format email tidak valid.']
-    if (!b.persetujuan) errors.persetujuan = ['Persetujuan wajib dicentang.']
+    const errors = validasiProfil(b, c.akun.jenis_nasabah)
     if (Object.keys(errors).length) return validasi(errors, 'Data yang diberikan tidak valid.')
-
-    const { persetujuan: _persetujuan, ...profil } = b
-    c.st.profil = profil
-    c.st.profil_lengkap = true
+    c.st.profil = ambilProfil(b)
     simpanDb(c.db)
-    return json({ data: profil })
+    return json({ data: { ...c.st.profil, no_hp: c.st.no_hp } })
   }),
 
   http.get('*/nasabah/rekening', async () => {

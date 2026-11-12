@@ -2,12 +2,21 @@ import axios from 'axios'
 import { ApiError, PESAN, pesanBatas, ratakanErrors } from './errors'
 
 /**
+ * Alamat API:
+ *   - VITE_API_URL   : origin Laravel (mis. https://api.<domain>); kosong = same-origin (proxy Vite).
+ *   - VITE_API_PREFIX: prefix endpoint nasabah, default `/api/v1`.
+ * CSRF cookie Sanctum berada di root (`/sanctum/csrf-cookie`), tidak ikut prefix.
+ */
+export const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+export const API_PREFIX = import.meta.env.VITE_API_PREFIX ?? '/api/v1'
+
+/**
  * Instance axios untuk API Laravel (Sanctum SPA, cookie).
  * Opsi tambahan per-permintaan:
  *   - skipAuthRedirect: true → 401 tidak memicu pengalihan ke halaman login.
  */
 export const http = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: `${API_URL}${API_PREFIX}`,
   withCredentials: true,
   withXSRFToken: true,
   timeout: 30000,
@@ -20,8 +29,6 @@ export const http = axios.create({
 const hooks = {
   /** Dipanggil saat sesi tidak valid (401). */
   onUnauthorized: () => {},
-  /** Dipanggil saat API menolak karena onboarding belum selesai (403 + kode). */
-  onWajib: () => {},
 }
 
 /** Pasang callback yang membutuhkan router/store (dipanggil sekali dari main.js). */
@@ -34,15 +41,15 @@ let csrfPromise = null
 export function ensureCsrf(force = false) {
   if (force) csrfPromise = null
   if (!csrfPromise) {
-    csrfPromise = http.get('/sanctum/csrf-cookie', { skipAuthRedirect: true }).catch((e) => {
-      csrfPromise = null
-      throw e
-    })
+    csrfPromise = http
+      .get('/sanctum/csrf-cookie', { baseURL: API_URL || '/', skipAuthRedirect: true })
+      .catch((e) => {
+        csrfPromise = null
+        throw e
+      })
   }
   return csrfPromise
 }
-
-export const KODE_WAJIB = ['WAJIB_GANTI_PASSWORD', 'WAJIB_LENGKAPI_DATA']
 
 async function bacaBody(data) {
   if (typeof Blob !== 'undefined' && data instanceof Blob) {
@@ -70,14 +77,23 @@ export async function tanganiError(error) {
     await ensureCsrf(true)
     return http.request(config)
   }
-  if (status === 401 || status === 419) {
+  if (status === 419) {
+    // Masih 419 setelah CSRF diambil ulang: sesi tidak bisa dibuat (origin tidak terdaftar di
+    // SANCTUM_STATEFUL_DOMAINS atau cookie diblokir browser). Bukan kesalahan kredensial.
+    if (!config.skipAuthRedirect) hooks.onUnauthorized()
+    throw new ApiError({
+      tipe: 'sesi',
+      status,
+      message:
+        'Tidak dapat membuat sesi. Pastikan aplikasi dibuka dari alamat resmi dan cookie diizinkan.',
+      data: body,
+    })
+  }
+  if (status === 401) {
     if (!config.skipAuthRedirect) hooks.onUnauthorized()
     throw new ApiError({ tipe: 'auth', status, message: PESAN.sesiBerakhir, data: body })
   }
   if (status === 403) {
-    if (KODE_WAJIB.includes(body.kode)) {
-      hooks.onWajib(body.kode)
-    }
     throw new ApiError({
       tipe: 'terlarang',
       status,
@@ -91,6 +107,16 @@ export async function tanganiError(error) {
       tipe: 'tidak-ditemukan',
       status,
       message: PESAN.tidakDitemukan,
+      data: body,
+    })
+  }
+  if (status === 409) {
+    // Mis. SUDAH_AKTIVASI: akun sudah dibuat.
+    throw new ApiError({
+      tipe: 'konflik',
+      status,
+      kode: body.kode,
+      message: body.message || 'Data sudah ada.',
       data: body,
     })
   }

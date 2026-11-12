@@ -12,10 +12,9 @@ import { buatPinia } from '@/test-utils'
 import { useAuthStore } from '../auth'
 
 const me = () => ({
-  nis: '25039',
-  nama: 'Andi Pratama',
-  wajib_ganti_password: true,
-  profil_lengkap: false,
+  nis: '25041',
+  nama: 'Rizky Ramadhan',
+  no_hp: '081234567890',
 })
 
 describe('auth store', () => {
@@ -30,8 +29,7 @@ describe('auth store', () => {
     const auth = useAuthStore()
     await auth.fetchMe()
     expect(auth.masuk).toBe(true)
-    expect(auth.wajibGantiPassword).toBe(true)
-    expect(auth.profilLengkap).toBe(false)
+    expect(auth.user.no_hp).toBe('081234567890')
     expect(auth.dimuat).toBe(true)
   })
 
@@ -43,26 +41,36 @@ describe('auth store', () => {
     expect(auth.dimuat).toBe(true)
   })
 
-  it('login mengambil CSRF cookie dulu', async () => {
-    http.post.mockResolvedValue({ data: { data: { ...me(), wajib_ganti_password: false } } })
+  it('login mengambil CSRF cookie dulu dan mengirim No. HP yang dinormalisasi', async () => {
+    http.post.mockResolvedValue({ data: { data: me() } })
     const auth = useAuthStore()
-    await auth.login({ nis: '25039', password: 'x' })
+    await auth.login({ no_hp: '+62 812-3456-7890', password: 'x' })
     expect(ensureCsrf).toHaveBeenCalled()
     expect(http.post).toHaveBeenCalledWith(
       '/nasabah/login',
-      { nis: '25039', password: 'x' },
+      { no_hp: '081234567890', password: 'x' },
       expect.anything(),
     )
-    expect(auth.wajibGantiPassword).toBe(false)
+    expect(auth.masuk).toBe(true)
   })
 
-  it('gantiPassword menurunkan flag wajib', async () => {
+  it('gantiNoHp memperbarui No. HP di state', async () => {
     http.get.mockResolvedValue({ data: { data: me() } })
-    http.put.mockResolvedValue({ data: {} })
+    http.put.mockResolvedValue({ data: { message: 'OK', data: { no_hp: '085700001111' } } })
     const auth = useAuthStore()
     await auth.fetchMe()
-    await auth.gantiPassword({ password_lama: 'a', password: 'b', password_confirmation: 'b' })
-    expect(auth.wajibGantiPassword).toBe(false)
+    const hasil = await auth.gantiNoHp({
+      password: 'Provita2026',
+      no_hp: '0857-0000-1111',
+      no_hp_confirmation: '0857-0000-1111',
+    })
+    expect(http.put).toHaveBeenCalledWith('/nasabah/no-hp', {
+      password: 'Provita2026',
+      no_hp: '085700001111',
+      no_hp_confirmation: '085700001111',
+    })
+    expect(hasil).toEqual({ message: 'OK', no_hp: '085700001111' })
+    expect(auth.user.no_hp).toBe('085700001111')
   })
 
   it('logout menghapus semua state Pinia & sessionStorage', async () => {

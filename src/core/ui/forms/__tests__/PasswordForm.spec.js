@@ -12,8 +12,7 @@ vi.mock('@/core/http/client', () => ({
 function pasang() {
   const { plugins } = siapkanGlobal()
   const auth = useAuthStore()
-  auth.user = { nis: '25039', nomor_rekening: ['1100125039'], wajib_ganti_password: true }
-  auth.wajibGantiPassword = true
+  auth.user = { nis: '25039', nomor_rekening: ['1100125039'], no_hp: '081234567890' }
   const w = mount(PasswordForm, { global: { plugins }, attachTo: document.body })
   return { w, auth }
 }
@@ -43,10 +42,12 @@ describe('PasswordForm', () => {
     expect(aturan(w, 'bedaLama')).toBe('false')
 
     await isi(w, 'password', '1100125039')
-    expect(aturan(w, 'bukanNis')).toBe('false')
+    expect(aturan(w, 'bukanIdentitas')).toBe('false')
+    await isi(w, 'password', '081234567890')
+    expect(aturan(w, 'bukanIdentitas')).toBe('false')
 
     await isi(w, 'password', 'Provita2026')
-    for (const k of ['panjang', 'hurufAngka', 'bedaLama', 'bukanNis'])
+    for (const k of ['panjang', 'hurufAngka', 'bedaLama', 'bukanIdentitas'])
       expect(aturan(w, k)).toBe('true')
     expect(w.get('[data-testid="kekuatan-label"]').text()).not.toBe('—')
     w.unmount()
@@ -72,8 +73,8 @@ describe('PasswordForm', () => {
     w.unmount()
   })
 
-  it('sukses → memanggil API, flag wajib turun, emit berhasil', async () => {
-    const { w, auth } = pasang()
+  it('sukses → memanggil API dan emit berhasil', async () => {
+    const { w } = pasang()
     const { http } = await import('@/core/http/client')
     await isi(w, 'password_lama', 'rahasia123')
     await isi(w, 'password', 'Provita2026')
@@ -85,7 +86,6 @@ describe('PasswordForm', () => {
       password: 'Provita2026',
       password_confirmation: 'Provita2026',
     })
-    expect(auth.wajibGantiPassword).toBe(false)
     expect(w.emitted('berhasil')).toHaveLength(1)
     w.unmount()
   })

@@ -5,6 +5,8 @@ export const KATEGORI = {
   bunga: { label: 'Bunga', ikon: 'pi pi-percentage' },
   biaya_admin: { label: 'Biaya administrasi', ikon: 'pi pi-receipt' },
   pindah_buku: { label: 'Pindah buku', ikon: 'pi pi-arrow-right-arrow-left' },
+  penutupan: { label: 'Penutupan rekening', ikon: 'pi pi-lock' },
+  koreksi: { label: 'Koreksi', ikon: 'pi pi-replay' },
 }
 
 export function infoKategori(kategori) {

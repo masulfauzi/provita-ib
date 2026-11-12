@@ -43,16 +43,6 @@ async function bootstrap() {
         router.replace({ name: RUTE.masuk, query: { alasan: 'sesi', redirect: sekarang.fullPath } })
       }
     },
-    onWajib(kode) {
-      const auth = useAuthStore(pinia)
-      if (kode === 'WAJIB_GANTI_PASSWORD') {
-        auth.wajibGantiPassword = true
-        router.replace({ name: RUTE.gantiPassword })
-      } else if (kode === 'WAJIB_LENGKAPI_DATA') {
-        auth.profilLengkap = false
-        router.replace({ name: RUTE.lengkapiData })
-      }
-    },
   })
 
   app.use(pinia)

@@ -111,9 +111,12 @@ async function salin() {
       v-else
       class="mt-auto flex items-center justify-between px-5 pb-5 text-body-sm text-muted sm:px-6 sm:pb-6"
     >
-      <span
+      <span v-if="rekening.suku_bunga != null"
         >Bunga <span class="tnum text-ink">{{ Number(rekening.suku_bunga) }}% p.a.</span></span
       >
+      <span v-else>{{
+        rekening.tanggal_buka ? `Dibuka ${tanggal(rekening.tanggal_buka)}` : ''
+      }}</span>
       <span class="flex items-center gap-1 text-primary"
         >Detail <i class="pi pi-angle-right" aria-hidden="true"
       /></span>

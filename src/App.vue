@@ -4,14 +4,14 @@ import { RouterView, useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
 import AppLayout from '@/core/ui/layouts/AppLayout.vue'
 import GuestLayout from '@/core/ui/layouts/GuestLayout.vue'
-import OnboardingLayout from '@/core/ui/layouts/OnboardingLayout.vue'
+import AktivasiLayout from '@/core/ui/layouts/AktivasiLayout.vue'
 import PolosLayout from '@/core/ui/layouts/PolosLayout.vue'
 
 const route = useRoute()
 const layouts = {
   app: AppLayout,
   tamu: GuestLayout,
-  onboarding: OnboardingLayout,
+  aktivasi: AktivasiLayout,
   polos: PolosLayout,
 }
 const layout = computed(() => layouts[route.meta?.layout] || AppLayout)
