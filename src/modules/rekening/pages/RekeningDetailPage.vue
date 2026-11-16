@@ -154,10 +154,10 @@ async function salin() {
       <div class="grid gap-6 lg:grid-cols-3">
         <div class="flex flex-col gap-6 lg:col-span-2">
           <section
-            class="relative overflow-hidden rounded-card bg-primary-container p-6 text-white shadow-hover sm:p-8"
+            class="relative overflow-hidden rounded-card bg-linear-to-br from-primary-hover to-primary-container p-6 text-white shadow-hover sm:p-8"
           >
             <div
-              class="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-primary/50 blur-3xl"
+              class="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-aksen/25 blur-3xl"
               aria-hidden="true"
             />
             <div class="relative flex items-start justify-between">

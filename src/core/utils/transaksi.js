@@ -24,8 +24,8 @@ export const PRODUK = {
   berjangka: {
     label: 'Tabungan Berjangka',
     ikon: 'pi pi-calendar-clock',
-    badge: 'bg-info-soft text-info-ink',
-    aksen: 'bg-info-ink',
+    badge: 'bg-ungu-soft text-ungu-ink',
+    aksen: 'bg-ungu-ink',
   },
   deposito: {
     label: 'Deposito',

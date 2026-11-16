@@ -1,7 +1,7 @@
 /*
  * Tema Bank Provita
  * Struktur & gaya mengikuti design system "Modern Financial Trust" (folder template/),
- * dengan palet warna Bank Provita: Deep Teal #0F766E / #115E59, aksen Emerald #10B981.
+ * dengan palet warna Bank Provita: Biru Laut #0369A1 / Laut Dalam #082F49, aksen Biru Langit #38BDF8.
  */
 @layer theme, base, primevue, components, utilities;
 
@@ -12,14 +12,14 @@
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 
   /* Warna merek */
-  --color-primary: #0f766e;
-  --color-primary-hover: #115e59;
-  --color-primary-active: #134e4a;
-  --color-primary-container: #0b3f3b;
+  --color-primary: #0369a1;
+  --color-primary-hover: #075985;
+  --color-primary-active: #0c4a6e;
+  --color-primary-container: #082f49;
   --color-on-primary: #ffffff;
-  --color-on-primary-container: #99f6e4;
-  --color-primary-soft: #f0fdfa;
-  --color-primary-soft-strong: #ccfbf1;
+  --color-on-primary-container: #bae6fd;
+  --color-primary-soft: #f0f9ff;
+  --color-primary-soft-strong: #e0f2fe;
 
   --color-success: #10b981;
   --color-success-ink: #047857;
@@ -31,6 +31,11 @@
   --color-warning-soft: #fffbeb;
   --color-info-ink: #0369a1;
   --color-info-soft: #f0f9ff;
+  /* Aksen dekoratif (titik logo, cahaya panel merek) */
+  --color-aksen: #38bdf8;
+  /* Produk Tabungan Berjangka (dibedakan dari biru primary) */
+  --color-ungu-ink: #6d28d9;
+  --color-ungu-soft: #f5f3ff;
 
   /* Netral */
   --color-canvas: #f8fafc;

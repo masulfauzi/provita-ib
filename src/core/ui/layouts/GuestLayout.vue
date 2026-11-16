@@ -12,14 +12,14 @@ const poin = [
   <div class="grid min-h-dvh lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
     <!-- Panel merek (desktop) -->
     <section
-      class="relative hidden overflow-hidden bg-primary-container p-12 text-white lg:flex lg:flex-col lg:justify-between"
+      class="relative hidden overflow-hidden bg-linear-to-br from-primary via-primary-hover to-primary-container p-12 text-white lg:flex lg:flex-col lg:justify-between"
       aria-hidden="true"
     >
       <div
-        class="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-primary/60 blur-3xl"
+        class="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-aksen/25 blur-3xl"
       />
       <div
-        class="pointer-events-none absolute -bottom-40 -left-20 h-96 w-96 rounded-full bg-success/20 blur-3xl"
+        class="pointer-events-none absolute -bottom-40 -left-20 h-96 w-96 rounded-full bg-aksen/30 blur-3xl"
       />
       <AppLogo terang class="relative" />
       <div class="relative max-w-md">
@@ -44,7 +44,9 @@ const poin = [
     </section>
 
     <!-- Konten (kartu login) -->
-    <main class="flex flex-col items-center justify-center px-4 py-10 sm:px-8">
+    <main
+      class="flex flex-col bg-linear-to-b from-primary-soft to-canvas items-center justify-center px-4 py-10 sm:px-8"
+    >
       <AppLogo class="mb-8 lg:hidden" />
       <div class="w-full max-w-md">
         <slot />

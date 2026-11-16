@@ -116,11 +116,11 @@ const sapaanWaktu = computed(() => {
     <template v-else>
       <!-- Kartu total saldo -->
       <section
-        class="relative mb-8 overflow-hidden rounded-card bg-primary-container p-6 text-white shadow-hover sm:p-8"
+        class="relative mb-8 overflow-hidden rounded-card bg-linear-to-br from-primary-hover to-primary-container p-6 text-white shadow-hover sm:p-8"
         aria-labelledby="judul-total"
       >
         <div
-          class="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-primary/50 blur-3xl"
+          class="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-aksen/25 blur-3xl"
           aria-hidden="true"
         />
         <div class="relative flex items-start justify-between gap-4">
@@ -128,7 +128,7 @@ const sapaanWaktu = computed(() => {
             <p
               class="mb-1 flex items-center gap-2 text-label-sm uppercase text-on-primary-container"
             >
-              <span class="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
+              <span class="h-1.5 w-1.5 rounded-full bg-aksen" aria-hidden="true" />
               <span id="judul-total">Total saldo</span>
             </p>
             <p class="text-body-md text-white/70">{{ rekeningAktif.length }} rekening aktif</p>

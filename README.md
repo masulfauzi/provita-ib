@@ -23,7 +23,7 @@ Vue 3 (`<script setup>`) + Vite · Vue Router · Pinia · PrimeVue 4 (Aura, pres
 
 > PrimeVue dikunci di **v4 (lisensi MIT)**. PrimeVue v5 memakai lisensi PrimeUI yang membutuhkan license key.
 
-Tampilan mengikuti design system di [`template/`](template/) ("Modern Financial Trust": sidebar, kartu putih hairline, Plus Jakarta Sans, angka tabular). Warnanya diganti ke palet Bank Provita: Deep Teal `#0F766E` / `#115E59`, aksen Emerald `#10B981`, radius 12 px.
+Tampilan mengikuti design system di [`template/`](template/) ("Modern Financial Trust": sidebar, kartu putih hairline, Plus Jakarta Sans, angka tabular). Warnanya diganti ke palet Bank Provita: Biru Laut `#0369A1` / Laut Dalam `#082F49`, aksen Biru Langit `#38BDF8`, radius 12 px.
 
 ## Setup
 
